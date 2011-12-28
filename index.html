@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+</head>
+<body>
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js" type="text/javascript" charset="utf-8"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script src="http://static.duarte.com/js/raphael.js" type="text/javascript" charset="utf-8"></script>
+<script type="text/javascript" charset="utf-8">
+
+	var socket = io.connect('http://192.168.10.125:8080');	
+	var paper = Raphael(0, 0, 1024, 768);
+	
+	console = console || function(){};
+
+	var mouse = [0,0];
+	var counter = 0;
+	var client_history = [];
+	var timer = setTimeout( broadcast, 100 );
+	var color = '#0560b3';
+	var width = 2;
+	var mytag = null;
+
+	$(function(){	
+		mytag = makeCircle();
+	});
+
+	$(document).bind('mousemove', clientMove);	
+	$(document).bind('mousedown', drawStart);
+	$(document).bind('touchstart', drawStart);
+	$(document).bind('mouseup', drawEnd);
+	$(document).bind('touchstop', drawEnd);
+	$(document).bind('touchmove', draw);
+
+	function clientMove(e) {
+		console.log('movemouse');
+		var position = {'t':'pos', 'cx': e.clientX, 'cy':e.clientY};
+		tagMove( position );
+		client_history.push(position);
+	}
+
+	function tagMove(obj) {
+		mytag.animate(obj, 0);
+	}
+
+	function drawStart(e){
+		console.log( e.clientX, e.clientY );		
+		mouse = [e.clientX, e.clientY];
+		$(document).bind('mousemove', draw);
+	}
+
+	function drawEnd(e){
+		e.preventDefault();
+		console.log(counter +" paths drawn");
+		counter = 0;
+		$(document).unbind('mousemove', draw);
+	}
+
+	
+	function draw(e){
+		var path = {t:'path', x1:mouse[0], y1:mouse[1], x2:e.clientX, y2:e.clientY };
+		path.c = color;
+		path.w = width;
+		
+		// draw the path locally
+		makePath(path);
+		
+		// add this path to the queue
+		client_history.push(path);
+		
+		//console.log(path);
+		
+		// Set the latest origin
+		mouse = [e.clientX, e.clientY];
+		counter++;
+		return false;
+	}
+
+	function makePath(obj){
+		var c;
+		c = paper.path("M" + obj.x1 +" "+ obj.y1 +"L"+ obj.x2 +" "+ obj.y2)
+				.attr('stroke', obj.c)
+				.attr('stroke-width', obj.w);
+		return c;
+	}
+	
+	function makeCircle(){
+		var c;
+		c = paper.circle(100,100,10).attr({'fill':color, 'fill-opacity':0.33, 'stroke':color, 'stroke-opacity':0.66});
+		return c;
+	}
+	
+	function broadcast(){
+		if(client_history.length > 0) {
+			socket.emit('path', client_history);
+			//console.log( client_history );
+			client_history = [];
+		}
+		timer = setTimeout( broadcast, 100 );
+	}
+	
+	socket.on('path', recieve);
+	function recieve(commands){
+		//console.log(commands);
+		for(var i=0;i<commands.length;i++){
+			x = commands[i];
+			if(x.t == 'path'){ makePath( x ); }
+			if(x.t == 'pos'){ tagMove( x ); }
+		}
+	}
+	
+	// Starup demo
+	recieve([{ x1:100, y1:100, x2:400, y2:400, c:'#dd9805', w:2 }]);
+	
+</script>
+</body>
+</html>
