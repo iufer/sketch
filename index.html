@@ -17,10 +17,12 @@
 	var socket = io.connect('http://192.168.10.125:8080');	
 	var paper = Raphael(0,0, 1024, 768);
 	var broadcast_delay = 100;
+	var clear_delay = 120000; // 2 minute interval
 	
 	console = console || function(){};
 	
-	var timer, mytag, myname, myid;
+	var timer, myname, myid;
+	var mytag = null;
 	var mouse = [0,0];
 	var counter = 0;
 	var client_history = {path:[], pos:[]};
@@ -32,14 +34,15 @@
 	$(function(){
 		myid = Math.floor( Math.random() * 128 + 32 );
 		mycolor = 'rgb(' + Math.floor( Math.random() * 128 + 32 ) + ',' + Math.floor( Math.random() * 128 + 32 ) + ',' + Math.floor( Math.random() * 128 + 32 ) +')';
-		// myname = prompt('Display Name');
-		myname = 'anonymous';
+		myname = prompt('Display Name');
+		//myname = 'anonymous';
 		mytag = makeTag({name:myname, color: mycolor});
 		
 		socket.emit('new_user', {id: myid, name: myname, color: mycolor});
 		timer = setTimeout( broadcast, broadcast_delay );		
 		
 		console.log('i am', {id: myid, name: myname, color: mycolor});
+		setInterval( cleanup, clear_delay);
 	});
 		
 	$(window).unload( exit );
@@ -48,7 +51,7 @@
 	$(document).bind('mousedown', drawStart);
 	$(document).bind('mouseup', drawEnd);
 
-	document.ontouchstart = drawStart;
+	document.ontouchstart = touchStart;
 	document.ontouchstop = drawEnd;
 	document.ontouchmove = draw;
 
@@ -66,21 +69,20 @@
 		if (e.touches) {
 			for (var i = 1; i <= e.touches.length; i++) {
 		      	var p = getCoords(e.touches[i - 1]); // Get info for finger i
-				var position = {id:myid, 'cx': p.x, 'cy':p.y};
+				var position = {id:myid, name:myname, color:mycolor, 'cx': p.x, 'cy':p.y};
 				tagMove( position );
 				client_history.pos.push(position);
 			}
 		}
-		else {
-			c = getCoords(e);
-			var position = {id:myid, 'cx': c.x, 'cy':c.y};
+		else {		
+			var position = {id:myid, name:myname, color:mycolor, 'cx': e.clientX, 'cy':e.clientY};
 			tagMove( position );
 			client_history.pos.push(position);
 		}
 	}
 
 	function tagMove(obj) {
-		if (mytag == null) return;
+		if (mytag == null) return false;
 		mytag.circle.animate(obj, 0);
 		mytag.text.animate({x: obj.cx+15, y: obj.cy}, 0);
 	}
@@ -88,14 +90,25 @@
 	function userTagMove(obj) {
 		// get the user's tag
 		usertag = all_users[ obj.id ];
+		if(usertag == false){		
+			usertag =  makeTag({name: obj.name, color: obj.color});
+			all_users[obj.id] = usertag;
+			console.log('created new usertag', usertag);
+		}
 		usertag.circle.animate(obj, 0);
 		usertag.text.animate({x: obj.cx+15, y: obj.cy}, 0);
+		
 	}	
 
-	function drawStart(e){
-		c = getCoords(e);
-		console.log( c.x, c.y );		
-		mouse = [c.x, c.y];
+	function touchStart(e){
+		for (var i = 1; i <= e.touches.length; i++) {
+	      	var p = getCoords(e.touches[i - 1]); // Get info for finger i
+			mouse = [p.x, p.y];
+		}
+	}
+
+	function drawStart(e){			
+		mouse = [e.clientX, e.clientY];
 		$(document).bind('mousemove', draw);
 	}
 
@@ -127,17 +140,16 @@
 		 } 
 		else {
 		    // Not touch enabled					
-			c = getCoords(e);
 			path.xa = mouse[0];
 			path.ya = mouse[1];
-			path.xb = c.x;
-			path.yb = c.y;
+			path.xb = e.clientX;
+			path.yb = e.clientY;
 
 			makePath(path);
 			client_history.path.push(path);
 		
 			// Set the latest origin
-			mouse = [c.x, c.y];
+			mouse = [e.clientX, e.clientY];
 			counter++;
 		}
 		
@@ -231,10 +243,24 @@
 	  } else if (e.layerX) {
 	    return { x: e.layerX, y: e.layerY };
 	  } else {
-	    return { x: e.pageX, y: e.pageY };
+	    return { x: e.clientX, y: e.clientY };
 	  }
 	}
 	
+	function cleanup(){
+		$(all_users).each( function(i, v){
+			if( v != undefined ){
+				console.log('cleanup', v);
+				v.circle.remove();
+				v.text.remove();
+				v.circle = null;
+				v.text = null;				
+				all_users[i] = false;
+			}
+		});
+		//all_users = [];
+		console.log('clean finished');
+	}
 	
 </script>
 </body>
