@@ -36,9 +36,32 @@ io.sockets.on('connection', function (socket) {
 	// socket.emit('user', {userid: name});
 	// io.sockets.emit('user connected', {username: 'username'});
 	
+	id = null;
+	
 	socket.on('path', function(data){
 		socket.broadcast.emit('path', data);
 	});
+	
+	socket.on('pos', function(data){
+		socket.broadcast.emit('pos', data);
+	});
+	
+	socket.on('new_user', function(data){
+		id = data.id;
+		socket.broadcast.emit('new_user', data);
+	});
+	
+	socket.on('hello', function(data){
+		socket.broadcast.emit('hello', data);
+	});	
+	
+	socket.on('exit', function(data){
+		socket.broadcast.emit('exit', data);
+	});	
+	
+	socket.on('disconnect', function () {
+	    socket.broadcast.emit('exit', {id: id});
+	  });
 	
 	// socket.on('draw', function(data){
 	// 	socket.broadcast.emit('draw', data);

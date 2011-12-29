@@ -1,52 +1,101 @@
 <!DOCTYPE html>
 <html>
 <head>
+	<style type="text/css" media="screen">
+		html, body { margin:0; padding:0; }
+		* { -webkit-user-select: none; -moz-user-select:none; }
+	</style>
 </head>
 <body>
-
+	<div id="artboard"></div>
+	
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js" type="text/javascript" charset="utf-8"></script>
 <script src="/socket.io/socket.io.js"></script>
 <script src="http://static.duarte.com/js/raphael.js" type="text/javascript" charset="utf-8"></script>
 <script type="text/javascript" charset="utf-8">
 
 	var socket = io.connect('http://192.168.10.125:8080');	
-	var paper = Raphael(0, 0, 1024, 768);
+	var paper = Raphael(0,0, 1024, 768);
+	var broadcast_delay = 100;
 	
 	console = console || function(){};
-
+	
+	var timer, mytag, myname, myid;
 	var mouse = [0,0];
 	var counter = 0;
-	var client_history = [];
-	var timer = setTimeout( broadcast, 100 );
-	var color = '#0560b3';
+	var client_history = {path:[], pos:[]};
+	var mycolor = '#0560b3';
 	var width = 2;
-	var mytag = null;
+	var all_users = [];
 
-	$(function(){	
-		mytag = makeCircle();
+	// DOM Loaded
+	$(function(){
+		myid = Math.floor( Math.random() * 128 + 32 );
+		mycolor = 'rgb(' + Math.floor( Math.random() * 128 + 32 ) + ',' + Math.floor( Math.random() * 128 + 32 ) + ',' + Math.floor( Math.random() * 128 + 32 ) +')';
+		// myname = prompt('Display Name');
+		myname = 'anonymous';
+		mytag = makeTag({name:myname, color: mycolor});
+		
+		socket.emit('new_user', {id: myid, name: myname, color: mycolor});
+		timer = setTimeout( broadcast, broadcast_delay );		
+		
+		console.log('i am', {id: myid, name: myname, color: mycolor});
 	});
+		
+	$(window).unload( exit );
 
 	$(document).bind('mousemove', clientMove);	
 	$(document).bind('mousedown', drawStart);
-	$(document).bind('touchstart', drawStart);
 	$(document).bind('mouseup', drawEnd);
-	$(document).bind('touchstop', drawEnd);
-	$(document).bind('touchmove', draw);
+
+	document.ontouchstart = drawStart;
+	document.ontouchstop = drawEnd;
+	document.ontouchmove = draw;
+
+	function sayHello(){
+		socket.emit('hello', {id: myid, name: myname, color: mycolor});
+		var position = {id:myid, 'cx': mouse[0], 'cy':mouse[1]};
+		client_history.pos.push(position);		
+	}
+
+	function exit(){		
+		socket.emit('exit', {id: myid});
+	}
 
 	function clientMove(e) {
-		console.log('movemouse');
-		var position = {'t':'pos', 'cx': e.clientX, 'cy':e.clientY};
-		tagMove( position );
-		client_history.push(position);
+		if (e.touches) {
+			for (var i = 1; i <= e.touches.length; i++) {
+		      	var p = getCoords(e.touches[i - 1]); // Get info for finger i
+				var position = {id:myid, 'cx': p.x, 'cy':p.y};
+				tagMove( position );
+				client_history.pos.push(position);
+			}
+		}
+		else {
+			c = getCoords(e);
+			var position = {id:myid, 'cx': c.x, 'cy':c.y};
+			tagMove( position );
+			client_history.pos.push(position);
+		}
 	}
 
 	function tagMove(obj) {
-		mytag.animate(obj, 0);
+		if (mytag == null) return;
+		mytag.circle.animate(obj, 0);
+		mytag.text.animate({x: obj.cx+15, y: obj.cy}, 0);
 	}
+	
+	function userTagMove(obj) {
+		// get the user's tag
+		usertag = all_users[ obj.id ];
+		usertag.circle.animate(obj, 0);
+		usertag.text.animate({x: obj.cx+15, y: obj.cy}, 0);
+	}	
 
 	function drawStart(e){
-		console.log( e.clientX, e.clientY );		
-		mouse = [e.clientX, e.clientY];
+		c = getCoords(e);
+		console.log( c.x, c.y );		
+		mouse = [c.x, c.y];
 		$(document).bind('mousemove', draw);
 	}
 
@@ -59,59 +108,133 @@
 
 	
 	function draw(e){
-		var path = {t:'path', x1:mouse[0], y1:mouse[1], x2:e.clientX, y2:e.clientY };
-		path.c = color;
-		path.w = width;
+		var path = {id: myid, c: mycolor, w: width};	
+		if (e.touches) {
+		    // Touch Enabled
+		    for (var i = 1; i <= e.touches.length; i++) {
+		      	var p = getCoords(e.touches[i - 1]); // Get info for finger i
+				path.xa = mouse[0];
+				path.ya = mouse[1];
+				path.xb = p.x;
+				path.yb = p.y;
+				
+		     	makePath(path);
+				client_history.path.push(path);
+				mouse = [p.x, p.y];
+				counter++;
+		    }
+			clientMove(e);
+		 } 
+		else {
+		    // Not touch enabled					
+			c = getCoords(e);
+			path.xa = mouse[0];
+			path.ya = mouse[1];
+			path.xb = c.x;
+			path.yb = c.y;
+
+			makePath(path);
+			client_history.path.push(path);
 		
-		// draw the path locally
-		makePath(path);
+			// Set the latest origin
+			mouse = [c.x, c.y];
+			counter++;
+		}
 		
-		// add this path to the queue
-		client_history.push(path);
-		
-		//console.log(path);
-		
-		// Set the latest origin
-		mouse = [e.clientX, e.clientY];
-		counter++;
 		return false;
 	}
 
 	function makePath(obj){
 		var c;
-		c = paper.path("M" + obj.x1 +" "+ obj.y1 +"L"+ obj.x2 +" "+ obj.y2)
+		c = paper.path("M" + obj.xa +" "+ obj.ya +"L"+ obj.xb +" "+ obj.yb)
 				.attr('stroke', obj.c)
 				.attr('stroke-width', obj.w);
 		return c;
 	}
 	
-	function makeCircle(){
-		var c;
-		c = paper.circle(100,100,10).attr({'fill':color, 'fill-opacity':0.33, 'stroke':color, 'stroke-opacity':0.66});
-		return c;
-	}
-	
-	function broadcast(){
-		if(client_history.length > 0) {
-			socket.emit('path', client_history);
-			//console.log( client_history );
-			client_history = [];
+	function makeTag(obj){
+		var c, t;
+		c = paper.circle(0,0,10).attr({'fill':obj.color, 'fill-opacity':0.33, 'stroke':obj.color, 'stroke-opacity':0.66});
+		if(obj.name){
+			t = paper.text(0,0, obj.name).attr({'font':'Verdana', 'font-size':9, 'text-anchor':'start', 'fill':'#999'});
 		}
-		timer = setTimeout( broadcast, 100 );
+		return {circle: c, text: t};
+	}
+		
+	// Automatic Broadcast Queue
+	function broadcast(){
+		if(client_history.path.length > 0) {
+			socket.emit('path', client_history.path);			
+			client_history.path = [];
+		}
+		if(client_history.pos.length > 0) {
+			socket.emit('pos', client_history.pos);			
+			client_history.pos = [];
+		}		
+		timer = setTimeout( broadcast, broadcast_delay );
 	}
 	
-	socket.on('path', recieve);
-	function recieve(commands){
+	// Incoming Path handler
+	socket.on('path', getPath);
+	function getPath(commands){
 		//console.log(commands);
 		for(var i=0;i<commands.length;i++){
 			x = commands[i];
-			if(x.t == 'path'){ makePath( x ); }
-			if(x.t == 'pos'){ tagMove( x ); }
+			makePath( x );
 		}
 	}
 	
-	// Starup demo
-	recieve([{ x1:100, y1:100, x2:400, y2:400, c:'#dd9805', w:2 }]);
+	// Incoming Position handler
+	socket.on('pos', getPosition);
+	function getPosition(commands){
+		//console.log(commands);
+		for(var i=0;i<commands.length;i++){
+			x = commands[i];
+			userTagMove( x );
+		}
+	}
+
+	// Incoming New User handler
+	socket.on('new_user', newUser);
+	function newUser(data){
+		// create a new tag
+		console.log('new user connected', data);
+		all_users[data.id] = makeTag({name: data.name, color: data.color});
+		sayHello();
+	}
+
+	// Hello Broadcast handler
+	socket.on('hello', newHello);
+	function newHello(data){
+		// create a new tag
+		console.log('heard a hello', data);
+		all_users[data.id] = makeTag({name: data.name, color: data.color});
+	}
+	
+	// Disconnected handler
+	socket.on('exit', userExit);
+	function userExit(data){
+		if(data.id == myid) return false;
+		console.log('user leaving', data);
+		usertag = all_users[ data.id ];
+		console.log('remove usertag', usertag);
+		usertag.circle.remove();
+		usertag.text.remove();
+		usertag = null;
+
+		all_users[data.id] = null;
+	}
+	
+	function getCoords(e) {
+	  if (e.offsetX) {
+	    return { x: e.offsetX, y: e.offsetY };
+	  } else if (e.layerX) {
+	    return { x: e.layerX, y: e.layerY };
+	  } else {
+	    return { x: e.pageX, y: e.pageY };
+	  }
+	}
+	
 	
 </script>
 </body>
